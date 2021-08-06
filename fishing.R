@@ -9,7 +9,6 @@ library(cowplot)
 library(magick)
 
 
-
 # import data >>> fish_raw -------------------------------------------------------------
 
 data_files <- list.files("./data/")

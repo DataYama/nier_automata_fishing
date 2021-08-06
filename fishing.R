@@ -8,6 +8,9 @@ library(glue)
 library(cowplot)
 library(magick)
 
+# import custom functions for bayes inference
+source("./scripts/functions.R")
+
 
 # import data >>> fish_raw -------------------------------------------------------------
 
@@ -36,36 +39,48 @@ fish_reshaped <- fish_raw %>%
 
 
 
+# bayes inference ---------------------------------------------------------
+
+fish_estimates <- fish_reshaped %>%
+  group_by(biome, species) %>%
+  summarise(count = sum(count)) %>%
+  ungroup() %>% group_by(biome) %>%
+  mutate(all_count = sum(count)) %>%
+  ungroup() %>% 
+  filter(count != 0) %>%
+  group_by(biome, species) %>%
+  summarise(tibble(get_frequency_estimate(count, all_count)))
+
 # bootstrap ---------------------------------------------------------------
 
 
-get_ratio <- function(split){
-
-  analysis(split) %>%
-    group_by(species) %>%
-    summarise(nb = n()) %>%
-    ungroup() %>%
-    mutate(ratio = nb/sum(nb))
-  
-}
-
-
-fish_estimates <- fish_reshaped %>%
-  rowwise() %>%
-  slice(rep(1:n(), each = count)) %>%
-  ungroup() %>%
-  group_by(biome) %>%
-  nest() %>%
-  mutate(data_boot = map(data, ~bootstraps(.x, times = 1000))) %>%
-  unnest(data_boot) %>%
-  mutate(results = map(splits, ~get_ratio(.x))) %>%
-  unnest(results) %>%
-  dplyr::select(biome, id, species, nb, ratio) %>%
-  group_by(biome, species) %>%
-  summarise(ratio_mean = mean(ratio),
-            ratio_upper = quantile(ratio, 0.95),
-            ratio_lower = quantile(ratio, 0.05),
-            .groups = "drop")
+# get_ratio <- function(split){
+# 
+#   analysis(split) %>%
+#     group_by(species) %>%
+#     summarise(nb = n()) %>%
+#     ungroup() %>%
+#     mutate(ratio = nb/sum(nb))
+#   
+# }
+# 
+# 
+# fish_estimates <- fish_reshaped %>%
+#   rowwise() %>%
+#   slice(rep(1:n(), each = count)) %>%
+#   ungroup() %>%
+#   group_by(biome) %>%
+#   nest() %>%
+#   mutate(data_boot = map(data, ~bootstraps(.x, times = 1000))) %>%
+#   unnest(data_boot) %>%
+#   mutate(results = map(splits, ~get_ratio(.x))) %>%
+#   unnest(results) %>%
+#   dplyr::select(biome, id, species, nb, ratio) %>%
+#   group_by(biome, species) %>%
+#   summarise(ratio_mean = mean(ratio),
+#             ratio_upper = quantile(ratio, 0.95),
+#             ratio_lower = quantile(ratio, 0.05),
+#             .groups = "drop")
 
 
 
@@ -87,8 +102,8 @@ for (loop_biome in unique(fish_estimates$biome)) {
   
   fish_plot <- fish_estimates %>%
     filter(biome == loop_biome) %>%
-    ggplot(aes(reorder(species, desc(ratio_mean)), # aes(reorder_within(species, desc(ratio_mean)), within = biome
-           ratio_mean, ymin = ratio_lower, ymax = ratio_upper)) +
+    ggplot(aes(reorder(species, desc(freq_mean)), # aes(reorder_within(species, desc(ratio_mean)), within = biome
+               freq_mean, ymin = hdi_low, ymax = hdi_high)) +
     geom_pointrange(position = position_dodge(width = 0.5), size = 1) +
     # geom_point() +
     # tidytext::scale_x_reordered() +
@@ -125,7 +140,7 @@ for (loop_biome in unique(fish_estimates$biome)) {
     draw_image(map_jpg, x = 0.82, y = 0.7, hjust = 0, vjust = 0, width = 0.2, height = 0.2)
   
   ggsave(
-    filename = glue("{loop_biome}.png"),
+    filename = glue("{loop_biome}_bayes.png"),
     path = "./outputs",
     width = 16, height = 9, units = "cm"
   )
